@@ -1,4 +1,11 @@
+<img src="frontend/public/cellar-logo.png" width="64" height="64" alt="ClauseCraft logo">
+
 # ClauseCraft by Cellar
+
+[Launch ClauseCraft](https://cellar-clausecraft.onrender.com/) · [Report an issue](https://github.com/suryandugy-glitch/ClauseCraft/issues)
+
+Upload a sample PDF with selectable text. Review the clauses in document order and download the HTML report.
+
 
 Upload a text-based PDF to split it into clauses, find common obligations,
 permissions, and prohibitions, and flag keywords for closer review. The app

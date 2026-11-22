@@ -5,11 +5,7 @@ import re
 from dotenv import load_dotenv
 
 load_dotenv()
-API_KEY = os.getenv("ANTHROPIC_API_KEY")
-if not API_KEY:
-    raise ValueError("ANTHROPIC_API_KEY not set in environment")
 
-client = anthropic.Anthropic(api_key=API_KEY)
 
 # Few-shot examples for legalese -> plain English
 FEW_SHOT_EXAMPLES = [
@@ -59,9 +55,10 @@ def rewrite_clauses(clauses):
     Returns a list of plain English strings in the same order.
     """
     prompt = build_prompt(clauses)
+    client = anthropic.Anthropic()
     try:
         response = client.messages.create(
-            model="claude-3-sonnet-20240229",
+            model=os.environ["ANTHROPIC_MODEL"],
             max_tokens=500,
             temperature=0.2,
             system="You are a helpful assistant that rewrites legal clauses into plain English.",
@@ -70,7 +67,7 @@ def rewrite_clauses(clauses):
             ]
         )
         # Extract the text from the response
-        text = response.content[0].strip()
+        text = response.content[0].text.strip()
         # Split by newline and clean
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         # If we got the same number of lines as clauses, return them.

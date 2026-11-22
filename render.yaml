@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: cellar-clausecraft
+    runtime: docker
+    plan: free
+    healthCheckPath: /health

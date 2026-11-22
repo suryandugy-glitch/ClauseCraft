@@ -1,58 +1,29 @@
-# backend/app/exporter.py
-from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
-import jinja2
+from jinja2 import Environment
 
-router = APIRouter()
-
-TEMPLATE_STR = """
-<!DOCTYPE html>
+TEMPLATE = Environment(autoescape=True).from_string("""
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>ClauseCraft Report – {{ filename }}</title>
+<meta charset="utf-8">
+<title>ClauseCraft by Cellar | Report</title>
 <style>
-  body {font-family: system-ui, sans-serif; margin:2rem; line-height:1.5; color:#222;}
-  h1, h2 {color:#0d47a1;}
-  .clause {margin:1rem 0; padding:1rem; border-left:4px solid #0d47a1; background:#f5f5f5;}
-  .risk-high {border-left-color:#d32f2f; background:#ffebee;}
-  .mermaid {text-align:center; margin:2rem 0;}
-  a {color:#0d47a1;}
+body {max-width: 56rem; margin: 2rem auto; padding: 0 1rem; font: 1rem/1.55 system-ui;}
+li {margin-bottom: 1rem;}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-</head>
-<body>
-<h1>ClauseCraft – Contract Summary</h1>
-<p><strong>File:</strong> {{ filename }}</p>
-
-<h2>Plain‑English Summary</h2>
-{% for clause, plain, risk in clauses %}
-<div class="clause {% if risk > 0.7 %}risk-high{% endif %}">
-  <strong>Clause {{ loop.index }}:</strong> {{ clause }}<br>
-  <em>Plain English:</em> {{ plain }}
-  {% if risk > 0.7 %}<span style="color:#d32f2f;"> (High Risk)</span>{% endif %}
-</div>
+<h1>ClauseCraft by Cellar</h1>
+<p>Document: {{ report.filename }}</p>
+<p>Keyword flags identify clauses for closer review.</p>
+<ol>
+{% for clause in report.original_clauses %}
+<li>
+<p>{{ clause }}</p>
+{% if report.risk_scores[loop.index0] > 0.7 %}<strong>Review flag</strong>{% endif %}
+{% if report.plain_clauses %}<p>{{ report.plain_clauses[loop.index0] }}</p>{% endif %}
+</li>
 {% endfor %}
-
-<h2>Flowchart</h2>
-<div class="mermaid">
-{{ mermaid_syntax | safe }}
-</div>
-
-<script>
-  mermaid.initialize({startOnLoad:true,theme:'variables'});
-</script>
-</body>
+</ol>
 </html>
-"""
+""")
 
-def render_report(filename, clauses, plain_clauses, mermaid_syntax):
-    """Return an HTML string ready to be streamed back."""
-    template = jinja2.Template(TEMPLATE_STR)
-    # Pair each clause with its plain version; risk scores are not needed for the template,
-    # but we keep the same shape as the caller expects.
-    return template.render(
-        filename=filename,
-        clauses=list(zip(clauses, plain_clauses, [0]*len(clauses))),  # dummy risk for template
-        mermaid_syntax=mermaid_syntax
-    )
+
+def render_report(report):
+    return TEMPLATE.render(report=report)

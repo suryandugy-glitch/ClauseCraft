@@ -1,98 +1,92 @@
-# backend/app/main.py
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
-from fastapi.responses = JSONResponse, StreamingResponse
-import uvicorn
 import os
-from dotenv import load_dotenv
+from pathlib import Path
 
-# Import our local modules
-from app import donut, clause_splitter, rewriter, deontic, risk_scorer, flowchart, exporter, negotiation
+from dotenv import load_dotenv
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+
+from app import clause_splitter, deontic, donut, exporter, negotiation, rewriter, risk_scorer
 
 load_dotenv()
-app = FastAPI(title="ClauseCraft API")
+app = FastAPI(title="ClauseCraft by Cellar", docs_url=None, redoc_url=None)
+MAX_PDF_BYTES = 5 * 1024 * 1024
 
-# -------------------------------------------------
-# Existing /process endpoint (unchanged)
-# -------------------------------------------------
-@app.post("/process")
-async def process_contract(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    contents = await file.read()
 
-    # 1️⃣ PDF → text (Donut replaced by PyMuPDF for simplicity)
-    text_lines, _ = donut.extract_text_and_layout(contents)
-    full_text = "\n".join(text_lines)
+def ai_enabled():
+    return bool(os.getenv("ANTHROPIC_API_KEY") and os.getenv("ANTHROPIC_MODEL"))
 
-    # 2️⃣ Split into clauses
-    clauses = clause_splitter.split_into_clauses(full_text)
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+def analyze_pdf(contents, filename):
+    try:
+        lines, _ = donut.extract_text_and_layout(contents)
+    except RuntimeError as error:
+        raise HTTPException(400, "Could not read this PDF") from error
+    clauses = clause_splitter.split_into_clauses("\n".join(lines))
     if not clauses:
-        raise HTTPException(status_code=400, detail="No clauses found in the document")
-
-    # 3️⃣ Rewrite each clause with Claude (few‑shot)
-    plain_clauses = rewriter.rewrite_clauses(clauses)
-
-    # 4️⃣ Extract deontic triples
-    triples_per_clause = deontic.extract_deontic_triples(clauses)
-
-    # 5️⃣ Risk scoring
-    risk_scores = risk_scorer.score_clauses(clauses)
-
-    # 6️⃣ Generate Mermaid flowchart syntax
-    mermaid_syntax = flowchart.generate_mermaid(clauses, triples_per_clause, risk_scores)
-
-    return JSONResponse(content={
-        "filename": file.filename,
+        raise HTTPException(400, "No readable clauses found. Use a PDF with selectable text.")
+    if len(clauses) > 100 or sum(map(len, clauses)) > 60_000:
+        raise HTTPException(400, "This document is too long. Use a shorter excerpt.")
+    return {
+        "filename": filename,
         "original_clauses": clauses,
-        "plain_clauses": plain_clauses,
-        "triples_per_clause": triples_per_clause,
-        "risk_scores": risk_scores,
-        "mermaid_syntax": mermaid_syntax
-    })
+        "plain_clauses": rewriter.rewrite_clauses(clauses) if ai_enabled() else None,
+        "triples_per_clause": deontic.extract_deontic_triples(clauses),
+        "risk_scores": risk_scorer.score_clauses(clauses),
+        "ai_enabled": ai_enabled(),
+    }
 
-# -------------------------------------------------
-# New: Export endpoint – returns a downloadable HTML report
-# -------------------------------------------------
-@app.post("/export")
+
+async def analyze_upload(file):
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported")
+    contents = await file.read(MAX_PDF_BYTES + 1)
+    if len(contents) > MAX_PDF_BYTES:
+        raise HTTPException(413, "Use a PDF of 5 MB or less")
+    try:
+        return await run_in_threadpool(analyze_pdf, contents, file.filename)
+    except RuntimeError as error:
+        raise HTTPException(502, "The analysis provider could not complete this request") from error
+
+
+@app.post("/process", include_in_schema=False)
+@app.post("/api/process")
+async def process_contract(file: UploadFile = File(...)):
+    return await analyze_upload(file)
+
+
+@app.post("/export", include_in_schema=False)
+@app.post("/api/export")
 async def export_contract(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-    contents = await file.read()
-
-    # Re‑use the same pipeline as /process (duplication is fine for a hackathon)
-    text_lines, _ = donut.extract_text_and_layout(contents)
-    full_text = "\n".join(text_lines)
-    clauses = clause_splitter.split_into_clauses(full_text)
-    if not clauses:
-        raise HTTPException(status_code=400, detail="No clauses found")
-    plain_clauses = rewriter.rewrite_clauses(clauses)
-    triples_per_clause = deontic.extract_deontic_triples(clauses)
-    risk_scores = risk_scorer.score_clauses(clauses)
-    mermaid_syntax = flowchart.generate_mermaid(clauses, triples_per_clause, risk_scores)
-
-    html_str = exporter.render_report(file.filename, clauses, plain_clauses, mermaid_syntax)
-
-    # Stream back as a downloadable file
-    return StreamingResponse(
-        iter([html_str.encode("utf-8")]),
-        media_type="text/html",
-        headers={"Content-Disposition": f'attachment; filename="{file.filename}_report.html"'}
+    data = await analyze_upload(file)
+    return HTMLResponse(
+        exporter.render_report(data),
+        headers={"Content-Disposition": 'attachment; filename="clausecraft-report.html"'},
     )
 
-# -------------------------------------------------
-# New: Negotiation suggestion (called from frontend)
-# -------------------------------------------------
-@app.post("/negotiate")
-async def negotiate_clause(payload: dict):
-    """
-    Expects JSON: {"clause": "<original legalese>"}
-    Returns: {"suggestion": "<fairer wording>"}
-    """
-    clause = payload.get("clause", "")
-    if not clause:
-        raise HTTPException(status_code=400, detail="Missing clause")
-    suggestion = negotiation.suggest_reword(clause)
-    return JSONResponse(content={"suggestion": suggestion})
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+class NegotiationRequest(BaseModel):
+    clause: str = Field(min_length=1, max_length=6_000)
+
+
+@app.post("/negotiate", include_in_schema=False)
+@app.post("/api/negotiate")
+def negotiate_clause(payload: NegotiationRequest):
+    if not ai_enabled():
+        raise HTTPException(503, "AI suggestions are disabled on this deployment")
+    try:
+        return {"suggestion": negotiation.suggest_reword(payload.clause)}
+    except RuntimeError as error:
+        raise HTTPException(502, "The suggestion provider could not complete this request") from error
+
+
+site = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if site.is_dir():
+    app.mount("/", StaticFiles(directory=site, html=True), name="frontend")

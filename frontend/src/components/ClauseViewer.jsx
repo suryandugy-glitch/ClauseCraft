@@ -1,7 +1,7 @@
 // frontend/src/components/ClauseViewer.jsx
 import { useState } from 'react';
 
-function ClauseViewer({ originalClauses, plainClauses, riskScores, onExport }) {
+function ClauseViewer({ originalClauses, plainClauses, aiEnabled, riskScores, onExport }) {
   const [viewMode, setViewMode] = useState('sideBySide'); // sideBySide or plainOnly
   const [copyFeedback, setCopyFeedback] = useState({}); // idx -> bool
   const [negotiationOpen, setNegotiationOpen] = useState(false);
@@ -45,6 +45,10 @@ function ClauseViewer({ originalClauses, plainClauses, riskScores, onExport }) {
     setNegotiationSuggestion('');
   };
 
+  if (!aiEnabled || !plainClauses) {
+    return <p className="my-4">AI summaries and wording suggestions are disabled in this demo.</p>;
+  }
+
   return (
     <div className="mb-6">
       <h2 className="text-xl font-semibold mb-3">Contract Analysis</h2>
@@ -68,7 +72,7 @@ function ClauseViewer({ originalClauses, plainClauses, riskScores, onExport }) {
                 <p className="text-sm text-primary">{clause}</p>
                 {riskScores[idx] > 0.7 && (
                   <span className="ml-2 inline-flex items-center px-2 py-0.5 bg-error/10 text-error rounded">
-                    High Risk
+                    Review flag
                   </span>
                 )}
               </div>
@@ -82,7 +86,7 @@ function ClauseViewer({ originalClauses, plainClauses, riskScores, onExport }) {
                 <p className="text-sm text-primary">{clause}</p>
                 {riskScores[idx] > 0.7 && (
                   <span className="ml-2 inline-flex items-center px-2 py-0.5 bg-error/10 text-error rounded">
-                    High Risk
+                    Review flag
                   </span>
                 )}
                 {/* Copy button */}
@@ -114,7 +118,7 @@ function ClauseViewer({ originalClauses, plainClauses, riskScores, onExport }) {
               <p className="text-sm text-primary">{clause}</p>
               {riskScores[idx] > 0.7 && (
                 <span className="ml-2 inline-flex items-center px-2 py-0.5 bg-error/10 text-error rounded">
-                  High Risk
+                  Review flag
                 </span>
               )}
               <button

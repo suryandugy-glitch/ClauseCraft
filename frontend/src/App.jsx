@@ -3,19 +3,16 @@ import { useState, useEffect } from 'react';
 import Upload from './components/Upload';
 import ClauseViewer from './components/ClauseViewer';
 import Flowchart from './components/Flowchart';
-import RiskBadge from './components/RiskBadge';
 
 function App() {
   const [contractData, setContractData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [darkMode, setDarkMode] = useState(false);
-  const [reportReady, setReportReady] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('darkMode') === 'true');
+  const [sourceFile, setSourceFile] = useState(null);
 
   // Persist dark‑mode choice
   useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved !== null) setDarkMode(saved === 'true');
     document.documentElement.classList.toggle('dark', darkMode);
   }, [darkMode]);
 
@@ -27,7 +24,8 @@ function App() {
   const handleUpload = async (file) => {
     setLoading(true);
     setError(null);
-    setReportReady(false);
+    setContractData(null);
+    setSourceFile(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -38,6 +36,7 @@ function App() {
       }
       const data = await resp.json();
       setContractData(data);
+      setSourceFile(file);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -46,18 +45,10 @@ function App() {
   };
 
   const handleExport = async () => {
-    if (!contractData) return;
+    if (!sourceFile) return;
     try {
       const formData = new FormData();
-      // We need to send the original PDF bytes again.
-      // For simplicity we’ll reconstruct a dummy file – in a real app you’d store the
-      // original bytes client‑side or call the backend with the filename.
-      // Here we just call the endpoint with a placeholder file; the backend will
-      // re‑process using the filename we stored in contractData.
-      const dummyBlob = new Blob([JSON.stringify({ filename: contractData.filename })], {
-        type: 'application/json'
-      });
-      formData.append('file', dummyBlob);
+      formData.append('file', sourceFile);
       const resp = await fetch('/api/export', { method: 'POST', body: formData });
       if (!resp.ok) throw new Error('Export failed');
       const blob = await resp.blob();
@@ -72,21 +63,13 @@ function App() {
     }
   };
 
-  if (error) {
-    return (
-      <div className="p-6 bg-error/10 text-error rounded-md">
-        <p>Error: {error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header with theme toggle */}
       <header className="bg-card/80 backdrop-blur-sm p-4 flex items-center justify-between border-b border-muted/20">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-primary">ClauseCraft</h1>
-          <p className="text-muted">Turn legalese into clarity in seconds</p>
+          <h1 className="text-2xl font-bold text-primary">ClauseCraft by Cellar</h1>
+          <p className="text-muted">Review clauses, permissions, and obligations</p>
         </div>
         <button
           onClick={toggleDark}
@@ -98,13 +81,16 @@ function App() {
       </header>
 
       <main className="flex-1 p-4">
+        <p className="mb-3">Upload a text-based PDF up to 5 MB. Use a sample document for this public demo. Keyword flags are a guide for further review.</p>
         <Upload onUpload={handleUpload} loading={loading} />
+        {error && <p role="alert" className="mt-3 text-red-700">{error}</p>}
 
         {contractData && (
           <>
             <ClauseViewer
               originalClauses={contractData.original_clauses}
               plainClauses={contractData.plain_clauses}
+              aiEnabled={contractData.ai_enabled}
               riskScores={contractData.risk_scores}
               onExport={handleExport}
             />
